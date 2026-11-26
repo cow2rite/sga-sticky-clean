@@ -55,9 +55,9 @@ def normalized_webhook(value: str) -> str:
     return "https://discord.com" + url.path
 
 
-def post_discord(webhook: str, content: str) -> str:
+def post_discord(webhook: str, content: str, role_id: str) -> str:
     payload = json.dumps(
-        {"content": content, "allowed_mentions": {"parse": []}},
+        {"content": content, "allowed_mentions": {"parse": [], "roles": [role_id]}},
         ensure_ascii=False,
     ).encode("utf-8")
     req = request.Request(
@@ -86,38 +86,82 @@ def run() -> None:
     due = report_monday(today.year, today.month)
     template = os.environ.get("PERFORMANCE_NOTICE_TEMPLATE", "")
     webhook = os.environ.get("DISCORD_WEBHOOK_URL", "")
-    if not webhook or not template:
-        raise RuntimeError("Missing DISCORD_WEBHOOK_URL or PERFORMANCE_NOTICE_TEMPLATE secret")
-    if len(template) > MAX_LENGTH:
-        raise RuntimeError("Notice template exceeds Discord message limit")
 
-    if os.environ.get("PREVIEW_ONLY", "false").lower() == "true":
-        next_due = next_report_monday(today)
-        print(f"PREVIEW ONLY - no Discord message sent. Next due date: {next_due.isoformat()} (Mon), 18:00 KST")
-        print("Webhook and private notice template are configured.")
+    if not webhook or not template:
+        raise RuntimeError("Missing webhook or notice template secret")
+
+    normalized_webhook(webhook)
+
+    preview_only = os.environ.get(
+        "PREVIEW_ONLY", "false"
+    ).lower() == "true"
+
+    if not preview_only and (
+        today != due or now.hour < 9 or now.hour >= 18
+    ):
+        print("Not scheduled reminder day/time")
         return
 
-    if today != due or now.hour < 9 or now.hour >= 18:
-        print(f"Not reminder day/time: {today.isoformat()} {now:%H:%M} KST. Next: {next_report_monday(today)}")
+    send_date = next_report_monday(today) if preview_only else due
+
+    deadline = date(
+        send_date.year,
+        send_date.month,
+        calendar.monthrange(send_date.year, send_date.month)[1]
+    )
+
+    weekday = ("월", "화", "수", "목", "금", "토", "일")[deadline.weekday()]
+
+    try:
+        content = template.format(
+            year=deadline.year,
+            month=deadline.month,
+            day=deadline.day,
+            weekday=weekday
+        )
+    except (KeyError, ValueError, IndexError):
+        raise RuntimeError("Invalid notice template placeholders") from None
+
+    if not 1 <= len(content) <= MAX_LENGTH:
+        raise RuntimeError("Invalid notice length")
+
+    role_tag = content.splitlines()[0].strip()
+    role_id = role_tag[3:-1]
+
+    if not (
+        role_tag == f"<@&{role_id}>"
+        and role_id.isascii()
+        and role_id.isdigit()
+        and 16 <= len(role_id) <= 22
+    ):
+        raise RuntimeError("Invalid SGA COACH role mention")
+
+    if preview_only:
+        print("PREVIEW ONLY - no Discord message sent.")
+        print(f"Next send date: {send_date.isoformat()} (Mon), 09:13 KST")
+        print(f"Deadline: {deadline.isoformat()} ({weekday}), 18:00 KST")
+        print("Webhook, template and role mention configured.")
         return
 
     state = load_state()
+
     if state.get("last_sent_date") == today.isoformat():
-        print(f"Already posted for {today.isoformat()}; not posting a duplicate")
+        print("Already posted; not posting a duplicate")
         return
 
-    try:
-        content = template.format(year=today.year, month=today.month, day=today.day)
-    except (KeyError, ValueError, IndexError):
-        raise RuntimeError("Template must use only {year}, {month}, {day} placeholders") from None
-    if not 1 <= len(content) <= MAX_LENGTH:
-        raise RuntimeError("Notice content must be 1 to 2000 characters")
+    message_id = post_discord(webhook, content, role_id)
 
-    message_id = post_discord(webhook, content)
     state["last_sent_date"] = today.isoformat()
     state["last_message_id"] = message_id
-    STATE_FILE.write_text(json.dumps(state, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    print(f"Monthly performance reminder posted for {today.isoformat()} (message ID saved)")
+
+    STATE_FILE.write_text(
+        json.dumps(state, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8"
+    )
+
+    print(f"Monthly performance reminder posted for {today.isoformat()}")
+
+
 
 
 if __name__ == "__main__":
