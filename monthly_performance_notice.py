@@ -125,7 +125,7 @@ def run() -> None:
     if not 1 <= len(content) <= MAX_LENGTH:
         raise RuntimeError("Invalid notice length")
 
-        role_id, _, body = content.strip().partition("\n")
+    role_id, _, body = content.strip().partition("\n")
     role_id = role_id.strip()
 
     if not (
