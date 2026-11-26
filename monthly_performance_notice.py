@@ -125,8 +125,9 @@ def run() -> None:
     if not 1 <= len(content) <= MAX_LENGTH:
         raise RuntimeError("Invalid notice length")
 
-    role_id, _, body = content.strip().partition("\n")
-    role_id = role_id.strip()
+    parts = content.strip().split(maxsplit=1)
+    role_id = parts[0]
+    body = parts[1] if len(parts) == 2 else ""
 
     if not (
         role_id.isascii()
@@ -135,7 +136,7 @@ def run() -> None:
     ):
         raise RuntimeError("Invalid SGA COACH role ID")
 
-    content = f"<@&{role_id}>\n\n{body.lstrip()}"
+    content = f"<@&{role_id}> {body.lstrip()}"
 
     if len(content) > MAX_LENGTH:
         raise RuntimeError("Notice exceeds Discord message limit")
