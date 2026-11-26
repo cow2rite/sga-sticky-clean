@@ -1,0 +1,49 @@
+name: SGA monthly performance notice
+
+on:
+  schedule:
+    # Monday at 09:13, 11:13, 14:13, 17:13 Korea Standard Time.
+    # Python sends ONLY on the last Monday whose weekend stays in the month.
+    # Repeated runs are deduplicated through monthly_performance_notice_state.json.
+    - cron: '13 0,2,5,8 * * 1'
+  workflow_dispatch:
+    inputs:
+      preview_only:
+        description: 'Preview schedule only (do not send a Discord message)'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+# Share the existing SGA Coach sticky concurrency group to avoid state-file git push races.
+concurrency:
+  group: sga-sticky-single-channel
+  cancel-in-progress: false
+
+jobs:
+  monthly-notice:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - name: Preview or send monthly reminder
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          PERFORMANCE_NOTICE_TEMPLATE: ${{ secrets.PERFORMANCE_NOTICE_TEMPLATE }}
+          PREVIEW_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.preview_only || false }}
+        run: python3 monthly_performance_notice.py
+
+      - name: Save monthly send record
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add monthly_performance_notice_state.json
+          if ! git diff --cached --quiet; then
+            git commit -m "Record SGA monthly performance reminder [skip ci]"
+            git push
+          fi
