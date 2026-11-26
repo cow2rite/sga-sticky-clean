@@ -125,16 +125,20 @@ def run() -> None:
     if not 1 <= len(content) <= MAX_LENGTH:
         raise RuntimeError("Invalid notice length")
 
-    role_tag = content.splitlines()[0].strip()
-    role_id = role_tag[3:-1]
+        role_id, _, body = content.strip().partition("\n")
+    role_id = role_id.strip()
 
     if not (
-        role_tag == f"<@&{role_id}>"
-        and role_id.isascii()
+        role_id.isascii()
         and role_id.isdigit()
         and 16 <= len(role_id) <= 22
     ):
-        raise RuntimeError("Invalid SGA COACH role mention")
+        raise RuntimeError("Invalid SGA COACH role ID")
+
+    content = f"<@&{role_id}>\n\n{body.lstrip()}"
+
+    if len(content) > MAX_LENGTH:
+        raise RuntimeError("Notice exceeds Discord message limit")
 
     if preview_only:
         print("PREVIEW ONLY - no Discord message sent.")
